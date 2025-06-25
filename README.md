@@ -1,0 +1,1 @@
+Just a bit more complicated version of <https://maplibre.org/maplibre-gl-js/docs/examples/globe-custom-simple/>
