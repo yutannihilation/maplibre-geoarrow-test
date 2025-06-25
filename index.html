@@ -32,6 +32,7 @@
 <div id="map"></div>
 <br />
 <button id="project">Toggle projection</button>
+<button id="colorBtn" style="position: absolute; top: 70px; left: 50%; transform: translate(-50%); width: 50%; height: 40px; padding: 10px; border: none; border-radius: 3px; font-size: 12px; text-align: center; color: #fff; background: #4285F4;">Change star color</button>
 <script>
     const map = new maplibregl.Map({
         container: 'map',
@@ -60,6 +61,9 @@
         id: 'highlight',
         type: 'custom',
         shaderMap: new Map(),
+        
+        // Star color (RGBA) - can be changed dynamically
+        starColor: [1.0, 0.843, 0.0, 0.85], // Golden yellow
 
         // Helper method for creating a shader based on current map projection - globe will automatically switch to mercator when some condition is fulfilled.
         getShader(gl, shaderDescription) {
@@ -101,33 +105,59 @@
 
             // create GLSL source for fragment shader
             const fragmentSource = `#version 300 es
+            precision highp float;
 
-            out highp vec4 fragColor;
+            uniform vec4 u_color;
+            
+            out vec4 fragColor;
             void main() {
-                fragColor = vec4(1.0, 0.843, 0.0, 0.85); // Golden yellow color for the star
+                fragColor = u_color;
             }`;
 
             // create a vertex shader
             const vertexShader = gl.createShader(gl.VERTEX_SHADER);
             gl.shaderSource(vertexShader, vertexSource);
             gl.compileShader(vertexShader);
+            
+            // Check vertex shader compilation
+            if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+                console.error('Vertex shader compilation error:', gl.getShaderInfoLog(vertexShader));
+                return null;
+            }
 
             // create a fragment shader
             const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
             gl.shaderSource(fragmentShader, fragmentSource);
             gl.compileShader(fragmentShader);
+            
+            // Check fragment shader compilation
+            if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+                console.error('Fragment shader compilation error:', gl.getShaderInfoLog(fragmentShader));
+                return null;
+            }
 
             // link the two shaders into a WebGL program
             const program = gl.createProgram();
             gl.attachShader(program, vertexShader);
             gl.attachShader(program, fragmentShader);
             gl.linkProgram(program);
+            
+            // Check program linking
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error('Program linking error:', gl.getProgramInfoLog(program));
+                return null;
+            }
 
-            this.aPos = gl.getAttribLocation(program, 'a_pos');
+            // Store program and its locations together
+            const programInfo = {
+                program: program,
+                aPos: gl.getAttribLocation(program, 'a_pos'),
+                uColor: gl.getUniformLocation(program, 'u_color')
+            };
 
-            this.shaderMap.set(shaderDescription.variantName, program);
+            this.shaderMap.set(shaderDescription.variantName, programInfo);
 
-            return program;
+            return programInfo;
         },
 
         // method called when the layer is added to the map
@@ -220,8 +250,15 @@
 
         // method fired on each animation frame
         render (gl, args) {
-            const program = this.getShader(gl, args.shaderData);
+            const programInfo = this.getShader(gl, args.shaderData);
+            if (!programInfo) {
+                console.error('Failed to get shader program');
+                return;
+            }
+            
+            const program = programInfo.program;
             gl.useProgram(program);
+            
             gl.uniformMatrix4fv(
                 gl.getUniformLocation(program, 'u_projection_fallback_matrix'),
                 false,
@@ -244,10 +281,13 @@
                 gl.getUniformLocation(program, 'u_projection_transition'),
                 args.defaultProjectionData.projectionTransition
             );
+            
+            // Set the star color uniform
+            gl.uniform4fv(programInfo.uColor, this.starColor);
 
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
-            gl.enableVertexAttribArray(this.aPos);
-            gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(programInfo.aPos);
+            gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
             
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
             
@@ -260,6 +300,26 @@
     // add the custom style layer to the map
     map.on('load', () => {
         map.addLayer(highlightLayer, 'crimea-fill');
+    });
+    
+    // Color palette for cycling through colors
+    const colorPalette = [
+        [1.0, 0.843, 0.0, 0.85],    // Golden yellow
+        [0.0, 0.5, 1.0, 0.85],      // Blue
+        [1.0, 0.0, 0.5, 0.85],      // Red-pink
+        [0.0, 1.0, 0.5, 0.85],      // Green
+        [0.8, 0.0, 1.0, 0.85],      // Purple
+        [1.0, 0.5, 0.0, 0.85]       // Orange
+    ];
+    let colorIndex = 0;
+    
+    // Add color change button functionality
+    document.getElementById('colorBtn').addEventListener('click', () => {
+        colorIndex = (colorIndex + 1) % colorPalette.length;
+        highlightLayer.starColor = colorPalette[colorIndex];
+        
+        // Trigger a re-render by calling triggerRepaint
+        map.triggerRepaint();
     });
 </script>
 </body>
