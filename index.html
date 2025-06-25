@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Add a simple custom layer on a globe</title>
-    <meta property="og:description" content="Use a custom layer to draw simple WebGL content on a globe." />
+    <title>Add a star custom layer on a globe</title>
+    <meta property="og:description" content="Use a custom layer to draw a star shape with WebGL on a globe." />
     <meta charset='utf-8'>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel='stylesheet' href='https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css' />
@@ -104,7 +104,7 @@
 
             out highp vec4 fragColor;
             void main() {
-                fragColor = vec4(1.0, 0.0, 1.0, 0.75);
+                fragColor = vec4(1.0, 0.843, 0.0, 0.85); // Golden yellow color for the star
             }`;
 
             // create a vertex shader
@@ -133,39 +133,73 @@
         // method called when the layer is added to the map
         // Search for StyleImageInterface in https://maplibre.org/maplibre-gl-js/docs/API/
         onAdd (map, gl) {
-            // define vertices of the triangle to be rendered in the custom style layer
-            const helsinki = maplibregl.MercatorCoordinate.fromLngLat({
-                lng: 25.004,
-                lat: 60.239
-            });
-            const berlin = maplibregl.MercatorCoordinate.fromLngLat({
-                lng: 13.403,
-                lat: 52.562
-            });
-            const kyiv = maplibregl.MercatorCoordinate.fromLngLat({
-                lng: 30.498,
-                lat: 50.541
+            // define center point for the star
+            const center = maplibregl.MercatorCoordinate.fromLngLat({
+                lng: 15.0,
+                lat: 55.0
             });
 
-            // create and initialize a WebGLBuffer to store vertex and color data
-            this.buffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+            // Generate star vertices
+            const vertices = [];
+            const numPoints = 5;
+            const outerRadius = 0.05; // radius in mercator coordinates
+            const innerRadius = outerRadius * 0.4; // inner radius for star points
+
+            // Generate vertices for a 5-pointed star
+            for (let i = 0; i < numPoints * 2; i++) {
+                const angle = (i * Math.PI) / numPoints - Math.PI / 2;
+                const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                
+                vertices.push(
+                    center.x + radius * Math.cos(angle),
+                    center.y + radius * Math.sin(angle)
+                );
+            }
+
+            // create and initialize a WebGLBuffer to store vertex data
+            this.vertexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
             gl.bufferData(
                 gl.ARRAY_BUFFER,
-                new Float32Array([
-                    helsinki.x,
-                    helsinki.y,
-                    kyiv.x,
-                    kyiv.y,
-                    berlin.x,
-                    berlin.y,
-                ]),
+                new Float32Array(vertices),
                 gl.STATIC_DRAW
             );
 
+            // Create index buffer for drawing triangles
+            // A 5-pointed star needs to be drawn as triangles from the center
+            const indices = [];
+            
+            // Add center point
+            vertices.push(center.x, center.y);
+            const centerIndex = numPoints * 2;
+            
+            // Create triangles from center to each edge
+            for (let i = 0; i < numPoints * 2; i++) {
+                indices.push(centerIndex, i, (i + 1) % (numPoints * 2));
+            }
+
+            // Update vertex buffer with center point
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                new Float32Array(vertices),
+                gl.STATIC_DRAW
+            );
+
+            // Create index buffer
+            this.indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            gl.bufferData(
+                gl.ELEMENT_ARRAY_BUFFER,
+                new Uint16Array(indices),
+                gl.STATIC_DRAW
+            );
+            
+            this.indexCount = indices.length;
+
             // Explanation of horizon clipping in MapLibre globe projection:
             //
-            // When zooming in, the triangle will eventually start doing what at first glance
+            // When zooming in, the star will eventually start doing what at first glance
             // appears to be clipping the underlying map.
             //
             // Instead it is being clipped by the "horizon" plane, which the globe uses to
@@ -175,10 +209,10 @@
             // MapLibre uses a constant z value per layer, so `gl_Position.z` can be anything,
             // since it later gets overwritten by `glDepthRange`.
             //
-            // At high zooms, the triangle's three vertices can end up beyond the horizon plane,
-            // resulting in the triangle getting clipped.
+            // At high zooms, the star's vertices can end up beyond the horizon plane,
+            // resulting in the star getting clipped.
             //
-            // This can be fixed by subdividing the triangle's geometry.
+            // This can be fixed by subdividing the star's geometry.
             // This is in general advisable to do, since without subdivision
             // geometry would not project to a curved shape under globe projection.
             // MapLibre also internally subdivides all geometry when globe projection is used.
@@ -211,12 +245,15 @@
                 args.defaultProjectionData.projectionTransition
             );
 
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
             gl.enableVertexAttribArray(this.aPos);
             gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
+            
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+            
             gl.enable(gl.BLEND);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 3);
+            gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
         }
     };
 
