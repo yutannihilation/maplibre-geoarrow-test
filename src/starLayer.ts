@@ -12,6 +12,7 @@ type RGBA = [number, number, number, number];
 interface ProgramInfo {
   program: WebGLProgram;
   aPos: number;
+  aOpacity: number;
   uColors: WebGLUniformLocation | null;
   uColorIndex: WebGLUniformLocation | null;
 }
@@ -89,9 +90,12 @@ export function createStarLayer(): StarLayer {
             ${shaderDescription.define}
 
             in vec2 a_pos;
+            in float a_opacity;
+            out float v_opacity;
 
             void main() {
                 gl_Position = projectTile(a_pos);
+                v_opacity = a_opacity;
             }`;
 
       // create GLSL source for fragment shader
@@ -102,11 +106,13 @@ export function createStarLayer(): StarLayer {
             uniform vec4 u_colors[MAX_COLORS];
             uniform int u_colorIndex;
             
+            in float v_opacity;
             out vec4 fragColor;
             void main() {
                 // Clamp index to valid range
                 int index = clamp(u_colorIndex, 0, MAX_COLORS - 1);
-                fragColor = u_colors[index];
+                vec4 color = u_colors[index];
+                fragColor = vec4(color.rgb, color.a * v_opacity);
             }`;
 
       // create a vertex shader
@@ -159,6 +165,7 @@ export function createStarLayer(): StarLayer {
       const programInfo: ProgramInfo = {
         program: program,
         aPos: gl.getAttribLocation(program, "a_pos"),
+        aOpacity: gl.getAttribLocation(program, "a_opacity"),
         uColors: gl.getUniformLocation(program, "u_colors"),
         uColorIndex: gl.getUniformLocation(program, "u_colorIndex"),
       };
@@ -184,20 +191,22 @@ export function createStarLayer(): StarLayer {
         lat: 55.0,
       });
 
-      // Generate star vertices
+      // Generate star vertices with per-vertex opacity
       const vertices: number[] = [];
       const numPoints = 5;
       const outerRadius = 0.05; // radius in mercator coordinates
       const innerRadius = outerRadius * 0.4; // inner radius for star points
 
-      // Generate vertices for a 5-pointed star
+      // Generate vertices for a 5-pointed star (position + opacity)
       for (let i = 0; i < numPoints * 2; i++) {
         const angle = (i * Math.PI) / numPoints - Math.PI / 2;
         const radius = i % 2 === 0 ? outerRadius : innerRadius;
+        const opacity = i % 2 === 0 ? 1.0 : 0.3; // outer points full opacity, inner points lower opacity
 
         vertices.push(
           center.x + radius * Math.cos(angle),
-          center.y + radius * Math.sin(angle)
+          center.y + radius * Math.sin(angle),
+          opacity
         );
       }
 
@@ -214,8 +223,8 @@ export function createStarLayer(): StarLayer {
       // A 5-pointed star needs to be drawn as triangles from the center
       const indices: number[] = [];
 
-      // Add center point
-      vertices.push(center.x, center.y);
+      // Add center point with full opacity
+      vertices.push(center.x, center.y, 1.0);
       const centerIndex = numPoints * 2;
 
       // Create triangles from center to each edge
@@ -262,19 +271,21 @@ export function createStarLayer(): StarLayer {
         const starOuterRadius = 0.03;
         const starInnerRadius = starOuterRadius * 0.4;
 
-        // Generate star vertices
+        // Generate star vertices with varying opacity
         for (let i = 0; i < numPoints * 2; i++) {
           const angle = (i * Math.PI) / numPoints - Math.PI / 2;
           const radius = i % 2 === 0 ? starOuterRadius : starInnerRadius;
+          const opacity = i % 2 === 0 ? 0.8 : 0.2; // different opacity pattern for additional stars
 
           starVertices.push(
             starCenter.x + radius * Math.cos(angle),
-            starCenter.y + radius * Math.sin(angle)
+            starCenter.y + radius * Math.sin(angle),
+            opacity
           );
         }
 
-        // Add center point
-        starVertices.push(starCenter.x, starCenter.y);
+        // Add center point with medium opacity
+        starVertices.push(starCenter.x, starCenter.y, 0.6);
 
         // Create vertex buffer
         const starVertexBuffer = gl.createBuffer();
@@ -366,7 +377,12 @@ export function createStarLayer(): StarLayer {
       if (this.vertexBuffer) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
         gl.enableVertexAttribArray(programInfo.aPos);
-        gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(programInfo.aOpacity);
+        
+        // Position attribute (x, y) - stride 12 bytes (3 floats), offset 0
+        gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 12, 0);
+        // Opacity attribute - stride 12 bytes, offset 8 (after x, y)
+        gl.vertexAttribPointer(programInfo.aOpacity, 1, gl.FLOAT, false, 12, 8);
       }
 
       if (this.indexBuffer && this.indexCount) {
@@ -395,7 +411,8 @@ export function createStarLayer(): StarLayer {
           // Bind the vertex buffer for this star
           if (star.vertexBuffer) {
             gl.bindBuffer(gl.ARRAY_BUFFER, star.vertexBuffer);
-            gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
+            gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 12, 0);
+            gl.vertexAttribPointer(programInfo.aOpacity, 1, gl.FLOAT, false, 12, 8);
           }
 
           if (star.indexBuffer) {
