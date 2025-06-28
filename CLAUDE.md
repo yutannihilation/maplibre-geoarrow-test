@@ -17,16 +17,18 @@ This is a MapLibre GL JS demonstration project that showcases custom WebGL layer
 
 ### Project Structure
 - **`index.html`**: Entry HTML file
-- **`src/main.js`**: Main JavaScript entry point
+- **`src/main.ts`**: Main TypeScript entry point
   - Map initialization with globe projection
   - Projection toggle functionality
   - Event listeners setup
-- **`src/starLayer.js`**: Custom WebGL layer implementation
+- **`src/starLayer.ts`**: Custom WebGL layer implementation in TypeScript
+  - Fully typed interfaces for WebGL operations
   - Dynamic shader generation based on current projection (globe vs mercator)
   - Renders multiple star shapes with customizable colors
   - Handles projection transformations in vertex shader
 - **`src/style.css`**: Application styles
 - **`vite.config.js`**: Vite configuration
+- **`tsconfig.json`**: TypeScript configuration
 - **`package.json`**: Project dependencies and scripts
 
 ### Key Components
@@ -44,11 +46,14 @@ This is a MapLibre GL JS demonstration project that showcases custom WebGL layer
 
 3. **Dependencies**:
    - MapLibre GL JS v5.6.0 (installed via npm)
-   - Vite (development dependency)
+   - TypeScript v5.7.0 (development dependency)
+   - @types/maplibre-gl v4.8.0 (development dependency)
+   - Vite v7.0.0 (development dependency)
+   - @geoarrow/geoarrow-js v0.3.2 (installed but not yet used)
 
 ## Important Notes
 
 - WebGL 2.0 is required for the custom layer
 - The project name suggests GeoArrow integration, but currently only implements basic WebGL rendering
-- No error handling is implemented for WebGL operations
+- Full TypeScript type safety is implemented throughout the codebase
 - Modern ES modules are used throughout the codebase

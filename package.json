@@ -9,7 +9,8 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "typescript": "^5.7.0"
   },
   "dependencies": {
     "@geoarrow/geoarrow-js": "^0.3.2",

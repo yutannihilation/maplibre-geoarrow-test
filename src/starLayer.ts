@@ -1,10 +1,55 @@
 import maplibregl from 'maplibre-gl';
+import type { CustomLayerInterface } from 'maplibre-gl';
 
-export function createStarLayer() {
+type RGBA = [number, number, number, number];
+
+interface ProgramInfo {
+    program: WebGLProgram;
+    aPos: number;
+    uColors: WebGLUniformLocation | null;
+    uColorIndex: WebGLUniformLocation | null;
+}
+
+interface ShaderDescription {
+    variantName: string;
+    vertexShaderPrelude: string;
+    define: string;
+}
+
+interface RenderArgs {
+    shaderData: ShaderDescription;
+    defaultProjectionData: {
+        fallbackMatrix: Float32Array;
+        mainMatrix: Float32Array;
+        tileMercatorCoords: [number, number, number, number];
+        clippingPlane: [number, number, number, number];
+        projectionTransition: number;
+    };
+}
+
+interface Star {
+    vertexBuffer: WebGLBuffer | null;
+    indexBuffer: WebGLBuffer | null;
+    indexCount: number;
+    colorIndex: number;
+}
+
+interface StarLayer extends CustomLayerInterface {
+    shaderMap: Map<string, ProgramInfo>;
+    colorPalette: RGBA[];
+    currentColorIndex: number;
+    vertexBuffer?: WebGLBuffer | null;
+    indexBuffer?: WebGLBuffer | null;
+    indexCount?: number;
+    additionalStars?: Star[];
+    getShader(gl: WebGL2RenderingContext, shaderDescription: ShaderDescription): ProgramInfo | null;
+}
+
+export function createStarLayer(): StarLayer {
     return {
         id: 'highlight',
         type: 'custom',
-        shaderMap: new Map(),
+        shaderMap: new Map<string, ProgramInfo>(),
         
         // Color palette - array of RGBA colors
         colorPalette: [
@@ -29,33 +74,14 @@ export function createStarLayer() {
         // Current color index
         currentColorIndex: 0,
 
-        // Helper method for creating a shader based on current map projection - globe will automatically switch to mercator when some condition is fulfilled.
-        getShader(gl, shaderDescription) {
+        // Helper method for creating a shader based on current map projection
+        getShader(gl: WebGL2RenderingContext, shaderDescription: ShaderDescription): ProgramInfo | null {
             // Pick a shader based on the current projection, defined by `variantName`.
             if (this.shaderMap.has(shaderDescription.variantName)) {
-                return this.shaderMap.get(shaderDescription.variantName);
+                return this.shaderMap.get(shaderDescription.variantName)!;
             }
 
             // Create GLSL source for vertex shader
-            //
-            // Note that we need to use a complex function to project from the source mercator
-            // coordinates to the globe. Internal shaders in MapLibre need to do this too.
-            // This is done using the `projectTile` function.
-            // In MapLibre, this function accepts vertex coordinates local to the current tile,
-            // in range 0..EXTENT (8192), but for custom layers MapLibre supplies uniforms such that
-            // the function accepts mercator coordinates of the whole world in range 0..1.
-            // This is controlled by the `u_projection_tile_mercator_coords` uniform.
-            //
-            // The `projectTile` function can also handle mercator to globe transitions and can
-            // handle the mercator projection - different code is supplied based on what projection is used,
-            // and for this reason we use different shaders based on what shader projection variant is currently used.
-            // See `variantName` usage earlier in this file.
-            //
-            // The code for the projection function and uniforms is also supplied by MapLibre
-            // and must be injected into custom layer shaders in order to draw on a globe.
-            // We simply use string interpolation for that here.
-            //
-            // See MapLibre source code for more details, especially src/shaders/_projection_globe.vertex.glsl
             const vertexSource = `#version 300 es
             // Inject MapLibre projection code
             ${shaderDescription.vertexShaderPrelude}
@@ -84,6 +110,8 @@ export function createStarLayer() {
 
             // create a vertex shader
             const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+            if (!vertexShader) return null;
+            
             gl.shaderSource(vertexShader, vertexSource);
             gl.compileShader(vertexShader);
             
@@ -95,6 +123,8 @@ export function createStarLayer() {
 
             // create a fragment shader
             const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+            if (!fragmentShader) return null;
+            
             gl.shaderSource(fragmentShader, fragmentSource);
             gl.compileShader(fragmentShader);
             
@@ -106,6 +136,8 @@ export function createStarLayer() {
 
             // link the two shaders into a WebGL program
             const program = gl.createProgram();
+            if (!program) return null;
+            
             gl.attachShader(program, vertexShader);
             gl.attachShader(program, fragmentShader);
             gl.linkProgram(program);
@@ -117,7 +149,7 @@ export function createStarLayer() {
             }
 
             // Store program and its locations together
-            const programInfo = {
+            const programInfo: ProgramInfo = {
                 program: program,
                 aPos: gl.getAttribLocation(program, 'a_pos'),
                 uColors: gl.getUniformLocation(program, 'u_colors'),
@@ -130,8 +162,7 @@ export function createStarLayer() {
         },
 
         // method called when the layer is added to the map
-        // Search for StyleImageInterface in https://maplibre.org/maplibre-gl-js/docs/API/
-        onAdd (map, gl) {
+        onAdd(map: maplibregl.Map, gl: WebGL2RenderingContext): void {
             // define center point for the star
             const center = maplibregl.MercatorCoordinate.fromLngLat({
                 lng: 15.0,
@@ -139,7 +170,7 @@ export function createStarLayer() {
             });
 
             // Generate star vertices
-            const vertices = [];
+            const vertices: number[] = [];
             const numPoints = 5;
             const outerRadius = 0.05; // radius in mercator coordinates
             const innerRadius = outerRadius * 0.4; // inner radius for star points
@@ -166,7 +197,7 @@ export function createStarLayer() {
 
             // Create index buffer for drawing triangles
             // A 5-pointed star needs to be drawn as triangles from the center
-            const indices = [];
+            const indices: number[] = [];
             
             // Add center point
             vertices.push(center.x, center.y);
@@ -212,7 +243,7 @@ export function createStarLayer() {
                     lat: loc.lat
                 });
                 
-                const starVertices = [];
+                const starVertices: number[] = [];
                 const starOuterRadius = 0.03;
                 const starInnerRadius = starOuterRadius * 0.4;
                 
@@ -236,7 +267,7 @@ export function createStarLayer() {
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(starVertices), gl.STATIC_DRAW);
                 
                 // Create index buffer (same pattern as main star)
-                const starIndices = [];
+                const starIndices: number[] = [];
                 const starCenterIndex = numPoints * 2;
                 for (let i = 0; i < numPoints * 2; i++) {
                     starIndices.push(starCenterIndex, i, (i + 1) % (numPoints * 2));
@@ -253,30 +284,10 @@ export function createStarLayer() {
                     colorIndex: loc.colorIndex
                 });
             }
-
-            // Explanation of horizon clipping in MapLibre globe projection:
-            //
-            // When zooming in, the star will eventually start doing what at first glance
-            // appears to be clipping the underlying map.
-            //
-            // Instead it is being clipped by the "horizon" plane, which the globe uses to
-            // clip any geometry behind horizon (regular face culling isn't enough).
-            // The horizon plane is not necessarily aligned with the near/far planes.
-            // The clipping is done by assigning a custom value to `gl_Position.z` in the `projectTile`
-            // MapLibre uses a constant z value per layer, so `gl_Position.z` can be anything,
-            // since it later gets overwritten by `glDepthRange`.
-            //
-            // At high zooms, the star's vertices can end up beyond the horizon plane,
-            // resulting in the star getting clipped.
-            //
-            // This can be fixed by subdividing the star's geometry.
-            // This is in general advisable to do, since without subdivision
-            // geometry would not project to a curved shape under globe projection.
-            // MapLibre also internally subdivides all geometry when globe projection is used.
         },
 
         // method fired on each animation frame
-        render (gl, args) {
+        render(gl: WebGL2RenderingContext, args: RenderArgs): void {
             const programInfo = this.getShader(gl, args.shaderData);
             if (!programInfo) {
                 console.error('Failed to get shader program');
@@ -289,12 +300,12 @@ export function createStarLayer() {
             gl.uniformMatrix4fv(
                 gl.getUniformLocation(program, 'u_projection_fallback_matrix'),
                 false,
-                args.defaultProjectionData.fallbackMatrix // convert mat4 from gl-matrix to a plain array
+                args.defaultProjectionData.fallbackMatrix
             );
             gl.uniformMatrix4fv(
                 gl.getUniformLocation(program, 'u_projection_matrix'),
                 false,
-                args.defaultProjectionData.mainMatrix // convert mat4 from gl-matrix to a plain array
+                args.defaultProjectionData.mainMatrix
             );
             gl.uniform4f(
                 gl.getUniformLocation(program, 'u_projection_tile_mercator_coords'),
@@ -312,26 +323,34 @@ export function createStarLayer() {
             // Set the color palette uniforms
             // Flatten the color palette array for uniform setting
             const flatColors = this.colorPalette.flat();
-            gl.uniform4fv(programInfo.uColors, flatColors);
+            if (programInfo.uColors) {
+                gl.uniform4fv(programInfo.uColors, flatColors);
+            }
             
             // Set the current color index
-            gl.uniform1i(programInfo.uColorIndex, this.currentColorIndex);
+            if (programInfo.uColorIndex) {
+                gl.uniform1i(programInfo.uColorIndex, this.currentColorIndex);
+            }
 
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
-            gl.enableVertexAttribArray(programInfo.aPos);
-            gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
+            if (this.vertexBuffer) {
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+                gl.enableVertexAttribArray(programInfo.aPos);
+                gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
+            }
             
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-            
-            gl.enable(gl.BLEND);
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            
-            // Draw the main star
-            gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+            if (this.indexBuffer && this.indexCount) {
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+                
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                
+                // Draw the main star
+                gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+            }
             
             // Example: Draw additional stars with different colors
             // This demonstrates how the color index uniform can be used for multiple shapes
-            if (this.additionalStars) {
+            if (this.additionalStars && programInfo.uColorIndex) {
                 for (let i = 0; i < this.additionalStars.length; i++) {
                     const star = this.additionalStars[i];
                     
@@ -339,11 +358,15 @@ export function createStarLayer() {
                     gl.uniform1i(programInfo.uColorIndex, (star.colorIndex + this.currentColorIndex) % this.colorPalette.length);
                     
                     // Bind the vertex buffer for this star
-                    gl.bindBuffer(gl.ARRAY_BUFFER, star.vertexBuffer);
-                    gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
+                    if (star.vertexBuffer) {
+                        gl.bindBuffer(gl.ARRAY_BUFFER, star.vertexBuffer);
+                        gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
+                    }
                     
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, star.indexBuffer);
-                    gl.drawElements(gl.TRIANGLES, star.indexCount, gl.UNSIGNED_SHORT, 0);
+                    if (star.indexBuffer) {
+                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, star.indexBuffer);
+                        gl.drawElements(gl.TRIANGLES, star.indexCount, gl.UNSIGNED_SHORT, 0);
+                    }
                 }
             }
         }
