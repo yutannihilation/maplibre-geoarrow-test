@@ -4,6 +4,9 @@ import type {
   CustomRenderMethodInput,
 } from "maplibre-gl";
 
+import * as arrow from "apache-arrow";
+import * as geoarrow from "@geoarrow/geoarrow-js";
+
 type RGBA = [number, number, number, number];
 
 interface ProgramInfo {
@@ -166,7 +169,15 @@ export function createStarLayer(): StarLayer {
     },
 
     // method called when the layer is added to the map
-    onAdd(map: maplibregl.Map, gl: WebGL2RenderingContext): void {
+    async onAdd(
+      map: maplibregl.Map,
+      gl: WebGL2RenderingContext
+    ): Promise<void> {
+      const resp = await fetch("./data/polygons.arrow");
+      const polygons = await arrow.tableFromIPC(resp);
+
+      //   geoarrow.algorithm.earcut(polygons);
+
       // define center point for the star
       const center = maplibregl.MercatorCoordinate.fromLngLat({
         lng: 15.0,
