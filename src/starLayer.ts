@@ -19,17 +19,6 @@ interface ShaderDescription {
   define: string;
 }
 
-interface RenderArgs {
-  shaderData: ShaderDescription;
-  defaultProjectionData: {
-    fallbackMatrix: Float32Array;
-    mainMatrix: Float32Array;
-    tileMercatorCoords: [number, number, number, number];
-    clippingPlane: [number, number, number, number];
-    projectionTransition: number;
-  };
-}
-
 interface Star {
   vertexBuffer: WebGLBuffer | null;
   indexBuffer: WebGLBuffer | null;
