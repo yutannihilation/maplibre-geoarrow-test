@@ -185,8 +185,13 @@ export function createStarLayer(): StarLayer {
 
       const polygons = table_data.getChild("geometry");
 
-      // const polygon_vert = geoarrow.algorithm.earcut(polygons?.toArray());
-      // console.log(polygon_vert);
+      if (!polygons || !geoarrow.vector.isPolygonVector(polygons)) {
+        console.log("Not a polygon");
+        return;
+      }
+
+      // const polygons_interleaved = geoarrow.
+      console.log(arrow.DataType.isFixedSizeList(polygons.type));
 
       // define center point for the star
       const center = maplibregl.MercatorCoordinate.fromLngLat({
