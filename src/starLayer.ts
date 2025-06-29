@@ -180,10 +180,13 @@ export function createStarLayer(): StarLayer {
       map: maplibregl.Map,
       gl: WebGL2RenderingContext
     ): Promise<void> {
-      const resp = await fetch("./data/polygons.arrow");
-      const polygons = await arrow.tableFromIPC(resp);
+      const resp = await fetch("/data/polygons.arrow");
+      const table_data = await arrow.tableFromIPC(resp);
 
-      //   geoarrow.algorithm.earcut(polygons);
+      const polygons = table_data.getChild("geometry");
+
+      // const polygon_vert = geoarrow.algorithm.earcut(polygons?.toArray());
+      // console.log(polygon_vert);
 
       // define center point for the star
       const center = maplibregl.MercatorCoordinate.fromLngLat({
@@ -378,7 +381,7 @@ export function createStarLayer(): StarLayer {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
         gl.enableVertexAttribArray(programInfo.aPos);
         gl.enableVertexAttribArray(programInfo.aOpacity);
-        
+
         // Position attribute (x, y) - stride 12 bytes (3 floats), offset 0
         gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 12, 0);
         // Opacity attribute - stride 12 bytes, offset 8 (after x, y)
@@ -412,7 +415,14 @@ export function createStarLayer(): StarLayer {
           if (star.vertexBuffer) {
             gl.bindBuffer(gl.ARRAY_BUFFER, star.vertexBuffer);
             gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 12, 0);
-            gl.vertexAttribPointer(programInfo.aOpacity, 1, gl.FLOAT, false, 12, 8);
+            gl.vertexAttribPointer(
+              programInfo.aOpacity,
+              1,
+              gl.FLOAT,
+              false,
+              12,
+              8
+            );
           }
 
           if (star.indexBuffer) {
