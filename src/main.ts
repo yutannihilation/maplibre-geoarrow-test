@@ -6,8 +6,8 @@ import { createStarLayer } from "./starLayer";
 const map = new maplibregl.Map({
   container: "map",
   style: "https://demotiles.maplibre.org/style.json",
-  zoom: 3,
-  center: [7.5, 58],
+  zoom: 6,
+  center: [139.7, 35.8],
   canvasContextAttributes: { antialias: true },
 });
 

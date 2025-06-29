@@ -82,7 +82,7 @@ export function createStarLayer(): StarLayer {
             in float v_opacity;
             out vec4 fragColor;
             void main() {
-                fragColor = vec4(1.0, 0.0, 0.0, 0.5);
+                fragColor = vec4(0.5, 0.1, 0.7, 0.7);
             }`;
 
       // create a vertex shader
@@ -148,7 +148,7 @@ export function createStarLayer(): StarLayer {
       map: maplibregl.Map,
       gl: WebGL2RenderingContext
     ): Promise<void> {
-      const resp = await fetch("/data/simple_data.arrow");
+      const resp = await fetch("/data/A09.arrow");
       const table_data = await arrow.tableFromIPC(resp);
 
       const polygons = table_data.getChild("geometry");
@@ -163,15 +163,28 @@ export function createStarLayer(): StarLayer {
         polygonsInterleaved.children[0].children[0].children[0].values;
       const indices = geoarrow.algorithm.earcut(polygonsInterleaved);
 
-      console.log(vertices);
-      console.log(indices);
+      // Convert lon/lat to Mercator coordinates
+      const mercatorVertices = [];
+      for (let i = 0; i < vertices.length; i += 2) {
+        const lon = vertices[i];
+        const lat = vertices[i + 1];
+        const mercator = maplibregl.MercatorCoordinate.fromLngLat({
+          lng: lon,
+          lat: lat,
+        });
+        mercatorVertices.push(mercator.x, mercator.y);
+      }
+
+      console.log("orig", vertices);
+
+      console.log("mercator", mercatorVertices);
 
       // create and initialize a WebGLBuffer to store vertex data
       this.vertexBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
       gl.bufferData(
         gl.ARRAY_BUFFER,
-        new Float32Array(vertices),
+        new Float32Array(mercatorVertices),
         gl.STATIC_DRAW
       );
 
@@ -180,7 +193,7 @@ export function createStarLayer(): StarLayer {
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
       gl.bufferData(
         gl.ELEMENT_ARRAY_BUFFER,
-        new Uint16Array(indices),
+        new Uint32Array(indices),
         gl.STATIC_DRAW
       );
 
@@ -234,8 +247,8 @@ export function createStarLayer(): StarLayer {
         gl.enableVertexAttribArray(programInfo.aPos);
         // gl.enableVertexAttribArray(programInfo.aOpacity); // TODO
 
-        const stride = 8;
-        gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, stride, 0);
+        // Position attribute (x, y) - stride 0 since we only have position data
+        gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 0, 0);
         // gl.vertexAttribPointer(programInfo.aOpacity, 1, gl.FLOAT, false, stride, 8); // TODO
       }
 
@@ -246,7 +259,7 @@ export function createStarLayer(): StarLayer {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
         // Draw the main star
-        gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+        gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
       }
     },
   };
