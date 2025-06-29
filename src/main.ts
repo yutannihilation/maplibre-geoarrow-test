@@ -35,16 +35,3 @@ const highlightLayer = createStarLayer();
 map.on("load", () => {
   map.addLayer(highlightLayer, "crimea-fill");
 });
-
-// Add color change button functionality
-const colorBtn = document.getElementById("colorBtn");
-if (colorBtn) {
-  colorBtn.addEventListener("click", () => {
-    highlightLayer.currentColorIndex =
-      (highlightLayer.currentColorIndex + 1) %
-      highlightLayer.colorPalette.length;
-
-    // Trigger a re-render by calling triggerRepaint
-    map.triggerRepaint();
-  });
-}

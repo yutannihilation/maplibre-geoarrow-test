@@ -6,16 +6,13 @@ import type {
 
 import * as arrow from "apache-arrow";
 import * as geoarrow from "@geoarrow/geoarrow-js";
-import earcut from "earcut";
-
-type RGBA = [number, number, number, number];
+import * as geoarrow_deckgl from "@geoarrow/deck.gl-layers";
+import { getInterleavedPolygon } from "./getInterleavedPolygon";
 
 interface ProgramInfo {
   program: WebGLProgram;
   aPos: number;
-  aOpacity: number;
-  uColors: WebGLUniformLocation | null;
-  uColorIndex: WebGLUniformLocation | null;
+  // aOpacity: number;
 }
 
 interface ShaderDescription {
@@ -33,7 +30,6 @@ interface Star {
 
 interface StarLayer extends CustomLayerInterface {
   shaderMap: Map<string, ProgramInfo>;
-  colorPalette: RGBA[];
   currentColorIndex: number;
   vertexBuffer?: WebGLBuffer | null;
   indexBuffer?: WebGLBuffer | null;
@@ -50,26 +46,6 @@ export function createStarLayer(): StarLayer {
     id: "highlight",
     type: "custom",
     shaderMap: new Map<string, ProgramInfo>(),
-
-    // Color palette - array of RGBA colors
-    colorPalette: [
-      [1.0, 0.843, 0.0, 0.85], // 0: Golden yellow
-      [0.0, 0.5, 1.0, 0.85], // 1: Blue
-      [1.0, 0.0, 0.5, 0.85], // 2: Red-pink
-      [0.0, 1.0, 0.5, 0.85], // 3: Green
-      [0.8, 0.0, 1.0, 0.85], // 4: Purple
-      [1.0, 0.5, 0.0, 0.85], // 5: Orange
-      [0.0, 1.0, 1.0, 0.85], // 6: Cyan
-      [1.0, 0.0, 1.0, 0.85], // 7: Magenta
-      [0.5, 0.5, 0.5, 0.85], // 8: Gray
-      [1.0, 1.0, 1.0, 0.85], // 9: White
-      [0.0, 0.0, 0.0, 0.85], // 10: Black
-      [0.5, 0.25, 0.0, 0.85], // 11: Brown
-      [1.0, 0.75, 0.8, 0.85], // 12: Pink
-      [0.5, 0.0, 0.5, 0.85], // 13: Dark purple
-      [0.0, 0.5, 0.0, 0.85], // 14: Dark green
-      [0.0, 0.0, 0.5, 0.85], // 15: Dark blue
-    ],
 
     // Current color index
     currentColorIndex: 0,
@@ -91,29 +67,22 @@ export function createStarLayer(): StarLayer {
             ${shaderDescription.define}
 
             in vec2 a_pos;
-            in float a_opacity;
+            // in float a_opacity; // TODO
             out float v_opacity;
 
             void main() {
                 gl_Position = projectTile(a_pos);
-                v_opacity = a_opacity;
+                v_opacity = 1.0;
             }`;
 
       // create GLSL source for fragment shader
       const fragmentSource = `#version 300 es
             precision highp float;
 
-            #define MAX_COLORS 16
-            uniform vec4 u_colors[MAX_COLORS];
-            uniform int u_colorIndex;
-            
             in float v_opacity;
             out vec4 fragColor;
             void main() {
-                // Clamp index to valid range
-                int index = clamp(u_colorIndex, 0, MAX_COLORS - 1);
-                vec4 color = u_colors[index];
-                fragColor = vec4(color.rgb, color.a * v_opacity);
+                fragColor = vec4(1.0, 0.0, 0.0, 0.5);
             }`;
 
       // create a vertex shader
@@ -166,9 +135,7 @@ export function createStarLayer(): StarLayer {
       const programInfo: ProgramInfo = {
         program: program,
         aPos: gl.getAttribLocation(program, "a_pos"),
-        aOpacity: gl.getAttribLocation(program, "a_opacity"),
-        uColors: gl.getUniformLocation(program, "u_colors"),
-        uColorIndex: gl.getUniformLocation(program, "u_colorIndex"),
+        // aOpacity: gl.getAttribLocation(program, "a_opacity"),
       };
 
       this.shaderMap.set(shaderDescription.variantName, programInfo);
@@ -181,7 +148,7 @@ export function createStarLayer(): StarLayer {
       map: maplibregl.Map,
       gl: WebGL2RenderingContext
     ): Promise<void> {
-      const resp = await fetch("/data/polygons.arrow");
+      const resp = await fetch("/data/simple_data.arrow");
       const table_data = await arrow.tableFromIPC(resp);
 
       const polygons = table_data.getChild("geometry");
@@ -191,90 +158,16 @@ export function createStarLayer(): StarLayer {
         return;
       }
 
-      const poly_inner = polygons.data[0];
-      const ringOffsets = poly_inner.valueOffsets as Int32Array;
-      const vertOffsets = poly_inner.children[0].valueOffsets as Int32Array;
-      const pos_xy = poly_inner.children[0].children[0].children;
-      const pos_x = pos_xy[0].values as Float64Array;
-      const pos_y = pos_xy[1].values as Float64Array;
+      const polygonsInterleaved = getInterleavedPolygon(polygons.data[0]);
+      const vertices =
+        polygonsInterleaved.children[0].children[0].children[0].values;
+      const indices = geoarrow.algorithm.earcut(polygonsInterleaved);
 
-      for (let i = 0; i < polygons.length; i++) {
-        const isLast = i == polygons.length;
-
-        const rOffsetStart = ringOffsets[i];
-        const rOffsetEnd = isLast ? polygons.length : ringOffsets[i + 1];
-        const vOffsets = vertOffsets.slice(rOffsetStart, rOffsetEnd);
-        const vOffsetStart = vOffsets[0];
-        const vOffsetEnd = isLast ? pos_xy.length : vertOffsets[rOffsetEnd];
-        const pos_x_slice = pos_x.slice(vOffsetStart, vOffsetEnd);
-        const pos_y_slice = pos_y.slice(vOffsetStart, vOffsetEnd);
-
-        // The original values are 64-bit float, but smaller size should fit for GPU
-        let interleavedPolygonData = new Float32Array(2 * pos_x_slice.length);
-
-        for (let v = 0; v < pos_x_slice.length; v++) {
-          interleavedPolygonData[2 * v] = pos_x[v];
-          interleavedPolygonData[2 * v + 1] = pos_y[v];
-        }
-
-        console.log(interleavedPolygonData);
-
-        let holeIndices =
-          vOffsets.length > 0
-            ? vOffsets.slice(1).map((o) => o - vOffsetStart)
-            : undefined;
-        const vert = earcut(interleavedPolygonData, holeIndices);
-        // console.log("Triangulated vertices:", vert);
-      }
-
-      // define center point for the star
-      const center = maplibregl.MercatorCoordinate.fromLngLat({
-        lng: 15.0,
-        lat: 55.0,
-      });
-
-      // Generate star vertices with per-vertex opacity
-      const vertices: number[] = [];
-      const numPoints = 5;
-      const outerRadius = 0.05; // radius in mercator coordinates
-      const innerRadius = outerRadius * 0.4; // inner radius for star points
-
-      // Generate vertices for a 5-pointed star (position + opacity)
-      for (let i = 0; i < numPoints * 2; i++) {
-        const angle = (i * Math.PI) / numPoints - Math.PI / 2;
-        const radius = i % 2 === 0 ? outerRadius : innerRadius;
-        const opacity = i % 2 === 0 ? 1.0 : 0.3; // outer points full opacity, inner points lower opacity
-
-        vertices.push(
-          center.x + radius * Math.cos(angle),
-          center.y + radius * Math.sin(angle),
-          opacity
-        );
-      }
+      console.log(vertices);
+      console.log(indices);
 
       // create and initialize a WebGLBuffer to store vertex data
       this.vertexBuffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        new Float32Array(vertices),
-        gl.STATIC_DRAW
-      );
-
-      // Create index buffer for drawing triangles
-      // A 5-pointed star needs to be drawn as triangles from the center
-      const indices: number[] = [];
-
-      // Add center point with full opacity
-      vertices.push(center.x, center.y, 1.0);
-      const centerIndex = numPoints * 2;
-
-      // Create triangles from center to each edge
-      for (let i = 0; i < numPoints * 2; i++) {
-        indices.push(centerIndex, i, (i + 1) % (numPoints * 2));
-      }
-
-      // Update vertex buffer with center point
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
       gl.bufferData(
         gl.ARRAY_BUFFER,
@@ -292,74 +185,6 @@ export function createStarLayer(): StarLayer {
       );
 
       this.indexCount = indices.length;
-
-      // Create additional stars to demonstrate multiple shapes with different colors
-      this.additionalStars = [];
-
-      // Add 3 more stars at different locations with different colors
-      const starLocations = [
-        { lng: 10.0, lat: 52.0, colorIndex: 1 }, // Blue star near Germany
-        { lng: 20.0, lat: 58.0, colorIndex: 2 }, // Red-pink star near Baltic
-        { lng: 5.0, lat: 60.0, colorIndex: 4 }, // Purple star near Norway
-      ];
-
-      for (const loc of starLocations) {
-        const starCenter = maplibregl.MercatorCoordinate.fromLngLat({
-          lng: loc.lng,
-          lat: loc.lat,
-        });
-
-        const starVertices: number[] = [];
-        const starOuterRadius = 0.03;
-        const starInnerRadius = starOuterRadius * 0.4;
-
-        // Generate star vertices with varying opacity
-        for (let i = 0; i < numPoints * 2; i++) {
-          const angle = (i * Math.PI) / numPoints - Math.PI / 2;
-          const radius = i % 2 === 0 ? starOuterRadius : starInnerRadius;
-          const opacity = i % 2 === 0 ? 0.8 : 0.2; // different opacity pattern for additional stars
-
-          starVertices.push(
-            starCenter.x + radius * Math.cos(angle),
-            starCenter.y + radius * Math.sin(angle),
-            opacity
-          );
-        }
-
-        // Add center point with medium opacity
-        starVertices.push(starCenter.x, starCenter.y, 0.6);
-
-        // Create vertex buffer
-        const starVertexBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, starVertexBuffer);
-        gl.bufferData(
-          gl.ARRAY_BUFFER,
-          new Float32Array(starVertices),
-          gl.STATIC_DRAW
-        );
-
-        // Create index buffer (same pattern as main star)
-        const starIndices: number[] = [];
-        const starCenterIndex = numPoints * 2;
-        for (let i = 0; i < numPoints * 2; i++) {
-          starIndices.push(starCenterIndex, i, (i + 1) % (numPoints * 2));
-        }
-
-        const starIndexBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, starIndexBuffer);
-        gl.bufferData(
-          gl.ELEMENT_ARRAY_BUFFER,
-          new Uint16Array(starIndices),
-          gl.STATIC_DRAW
-        );
-
-        this.additionalStars.push({
-          vertexBuffer: starVertexBuffer,
-          indexBuffer: starIndexBuffer,
-          indexCount: starIndices.length,
-          colorIndex: loc.colorIndex,
-        });
-      }
     },
 
     // method fired on each animation frame
@@ -404,27 +229,14 @@ export function createStarLayer(): StarLayer {
         args.defaultProjectionData.projectionTransition
       );
 
-      // Set the color palette uniforms
-      // Flatten the color palette array for uniform setting
-      const flatColors = this.colorPalette.flat();
-      if (programInfo.uColors) {
-        gl.uniform4fv(programInfo.uColors, flatColors);
-      }
-
-      // Set the current color index
-      if (programInfo.uColorIndex) {
-        gl.uniform1i(programInfo.uColorIndex, this.currentColorIndex);
-      }
-
       if (this.vertexBuffer) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
         gl.enableVertexAttribArray(programInfo.aPos);
-        gl.enableVertexAttribArray(programInfo.aOpacity);
+        // gl.enableVertexAttribArray(programInfo.aOpacity); // TODO
 
-        // Position attribute (x, y) - stride 12 bytes (3 floats), offset 0
-        gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 12, 0);
-        // Opacity attribute - stride 12 bytes, offset 8 (after x, y)
-        gl.vertexAttribPointer(programInfo.aOpacity, 1, gl.FLOAT, false, 12, 8);
+        const stride = 8;
+        gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, stride, 0);
+        // gl.vertexAttribPointer(programInfo.aOpacity, 1, gl.FLOAT, false, stride, 8); // TODO
       }
 
       if (this.indexBuffer && this.indexCount) {
@@ -435,45 +247,6 @@ export function createStarLayer(): StarLayer {
 
         // Draw the main star
         gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
-      }
-
-      // Example: Draw additional stars with different colors
-      // This demonstrates how the color index uniform can be used for multiple shapes
-      if (this.additionalStars && programInfo.uColorIndex) {
-        for (let i = 0; i < this.additionalStars.length; i++) {
-          const star = this.additionalStars[i];
-
-          // Set different color index for each star
-          gl.uniform1i(
-            programInfo.uColorIndex,
-            (star.colorIndex + this.currentColorIndex) %
-              this.colorPalette.length
-          );
-
-          // Bind the vertex buffer for this star
-          if (star.vertexBuffer) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, star.vertexBuffer);
-            gl.vertexAttribPointer(programInfo.aPos, 2, gl.FLOAT, false, 12, 0);
-            gl.vertexAttribPointer(
-              programInfo.aOpacity,
-              1,
-              gl.FLOAT,
-              false,
-              12,
-              8
-            );
-          }
-
-          if (star.indexBuffer) {
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, star.indexBuffer);
-            gl.drawElements(
-              gl.TRIANGLES,
-              star.indexCount,
-              gl.UNSIGNED_SHORT,
-              0
-            );
-          }
-        }
       }
     },
   };
