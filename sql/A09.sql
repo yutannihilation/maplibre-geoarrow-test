@@ -15,4 +15,4 @@ SELECT
     ST_GeomFromWKB(geometry)::POLYGON_2D as geometry
 FROM st_read_multi('data_raw/A09-18_13_GML/GeoJSON/*.geojson');
 
-COPY t1 TO 'data/polygons.arrow';
+COPY t1 TO 'public/data/polygons.arrow';
