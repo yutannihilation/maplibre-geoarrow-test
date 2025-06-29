@@ -6,6 +6,7 @@ import type {
 
 import * as arrow from "apache-arrow";
 import * as geoarrow from "@geoarrow/geoarrow-js";
+import earcut from "earcut";
 
 type RGBA = [number, number, number, number];
 
@@ -190,8 +191,41 @@ export function createStarLayer(): StarLayer {
         return;
       }
 
-      // const polygons_interleaved = geoarrow.
-      console.log(arrow.DataType.isFixedSizeList(polygons.type));
+      const poly_inner = polygons.data[0];
+      const ringOffsets = poly_inner.valueOffsets as Int32Array;
+      const vertOffsets = poly_inner.children[0].valueOffsets as Int32Array;
+      const pos_xy = poly_inner.children[0].children[0].children;
+      const pos_x = pos_xy[0].values as Float64Array;
+      const pos_y = pos_xy[1].values as Float64Array;
+
+      for (let i = 0; i < polygons.length; i++) {
+        const isLast = i == polygons.length;
+
+        const rOffsetStart = ringOffsets[i];
+        const rOffsetEnd = isLast ? polygons.length : ringOffsets[i + 1];
+        const vOffsets = vertOffsets.slice(rOffsetStart, rOffsetEnd);
+        const vOffsetStart = vOffsets[0];
+        const vOffsetEnd = isLast ? pos_xy.length : vertOffsets[rOffsetEnd];
+        const pos_x_slice = pos_x.slice(vOffsetStart, vOffsetEnd);
+        const pos_y_slice = pos_y.slice(vOffsetStart, vOffsetEnd);
+
+        // The original values are 64-bit float, but smaller size should fit for GPU
+        let interleavedPolygonData = new Float32Array(2 * pos_x_slice.length);
+
+        for (let v = 0; v < pos_x_slice.length; v++) {
+          interleavedPolygonData[2 * v] = pos_x[v];
+          interleavedPolygonData[2 * v + 1] = pos_y[v];
+        }
+
+        console.log(interleavedPolygonData);
+
+        let holeIndices =
+          vOffsets.length > 0
+            ? vOffsets.slice(1).map((o) => o - vOffsetStart)
+            : undefined;
+        const vert = earcut(interleavedPolygonData, holeIndices);
+        // console.log("Triangulated vertices:", vert);
+      }
 
       // define center point for the star
       const center = maplibregl.MercatorCoordinate.fromLngLat({
