@@ -148,7 +148,7 @@ export function createStarLayer(): StarLayer {
       map: maplibregl.Map,
       gl: WebGL2RenderingContext
     ): Promise<void> {
-      const resp = await fetch("./data/A09.arrow");
+      const resp = await fetch("./data/A03.arrow");
       const table_data = await arrow.tableFromIPC(resp);
 
       const polygons = table_data.getChild("geometry");

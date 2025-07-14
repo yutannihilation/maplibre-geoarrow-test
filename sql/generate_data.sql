@@ -7,15 +7,22 @@ LOAD arrow;
 
 CALL register_geoarrow_extensions();
 
-CREATE TABLE t_A09 AS
-SELECT
-    area_cd::INTEGER as area_cd,
-    layer_no::INTEGER as layer_no,
-    prefec_cd::INTEGER as prefec_cd,
-    ST_GeomFromWKB(geometry)::POLYGON_2D as geometry
-FROM st_read_multi('data_raw/A09-18_13_GML/GeoJSON/*.geojson');
+-- CREATE TABLE t_A09 AS
+-- SELECT
+--     area_cd::INTEGER as area_cd,
+--     layer_no::INTEGER as layer_no,
+--     prefec_cd::INTEGER as prefec_cd,
+--     ST_GeomFromWKB(geometry)::POLYGON_2D as geometry
+-- FROM st_read_multi('data_raw/A09-18_13_GML/GeoJSON/*.geojson');
 
-COPY t_A09 TO 'public/data/A09.arrow';
+-- COPY t_A09 TO 'public/data/A09.arrow';
+
+CREATE TABLE t_A03 AS
+SELECT
+    geom::POLYGON_2D AS geometry
+FROM st_read('data_raw/A03-03_SYUTO-tky_GML/A03-03_SYUTO-g_ThreeMajorMetroPlanArea.shp');
+
+COPY t_A03 TO 'public/data/A03.arrow';
 
 CREATE TABLE t_simple_data AS
 SELECT ST_GeomFromText(geom)::POLYGON_2D as geometry
