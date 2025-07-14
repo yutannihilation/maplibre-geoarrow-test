@@ -1,4 +1,4 @@
-import maplibregl from "maplibre-gl";
+import maplibregl, { MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./style.css";
 import { createStarLayer } from "./starLayer";
@@ -6,7 +6,7 @@ import { createStarLayer } from "./starLayer";
 const map = new maplibregl.Map({
   container: "map",
   style: "https://demotiles.maplibre.org/style.json",
-  zoom: 6,
+  zoom: 8,
   center: [139.7, 35.8],
   canvasContextAttributes: { antialias: true },
 });
@@ -39,6 +39,8 @@ map.on("load", () => {
   map.addLayer(highlightLayer, "crimea-fill");
 });
 
-map.on("click", () => {
+map.on("click", (e: MapMouseEvent) => {
+  console.log(e.lngLat);
+  highlightLayer.center = maplibregl.MercatorCoordinate.fromLngLat(e.lngLat);
   highlightLayer.startTime = performance.now();
 });

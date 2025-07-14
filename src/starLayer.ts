@@ -2,6 +2,7 @@ import maplibregl from "maplibre-gl";
 import type {
   CustomLayerInterface,
   CustomRenderMethodInput,
+  MercatorCoordinate,
 } from "maplibre-gl";
 
 import * as arrow from "apache-arrow";
@@ -31,6 +32,7 @@ interface Star {
 interface StarLayer extends CustomLayerInterface {
   shaderMap: Map<string, ProgramInfo>;
   startTime: number;
+  center: MercatorCoordinate;
   vertexBuffer?: WebGLBuffer | null;
   indexBuffer?: WebGLBuffer | null;
   indexCount?: number;
@@ -47,6 +49,9 @@ export function createStarLayer(): StarLayer {
     type: "custom",
     shaderMap: new Map<string, ProgramInfo>(),
     startTime: performance.now(),
+    center: maplibregl.MercatorCoordinate.fromLngLat([
+      139.7330435473243, 36.0004905766484,
+    ]),
 
     // Helper method for creating a shader based on current map projection
     getShader(
@@ -64,12 +69,24 @@ export function createStarLayer(): StarLayer {
             ${shaderDescription.vertexShaderPrelude}
             ${shaderDescription.define}
 
+            uniform float u_time;
+            uniform vec2 u_center;
+
             in vec2 a_pos;
-            out float v_opacity;
+            
+
+            out float dist;
+            out float dist1;
+            out float dist2;
+            out float dist3;
 
             void main() {
                 gl_Position = projectTile(a_pos);
-                v_opacity = 1.0;
+
+                dist = distance(a_pos, u_center);
+                dist1 = distance(a_pos, u_center + log(0.001 * u_time) * 0.0004 * vec2(sin(0.00072 * u_time), cos(0.00082 * u_time)));
+                dist2 = distance(a_pos, u_center + log(0.001 * u_time) * 0.0004 * vec2(sin(0.00113 * u_time), cos(0.00123 * u_time)));
+                dist3 = distance(a_pos, u_center + log(0.001 * u_time) * 0.0004 * vec2(sin(0.00094 * u_time), cos(0.00084 * u_time)));
             }`;
 
       // create GLSL source for fragment shader
@@ -78,10 +95,19 @@ export function createStarLayer(): StarLayer {
 
             uniform float u_time;
 
-            in float v_opacity;
+            in float dist;
+            in float dist1;
+            in float dist2;
+            in float dist3;
+
             out vec4 fragColor;
             void main() {
-                fragColor = vec4(0.5, 0.1, 0.7, 0.7 + 0.2 * sin(0.001 * u_time));
+                float t = sin(10000.0 * dist / log(u_time)) / log(u_time);
+                float r = -t + 0.6 + 0.2 * sin(8000.0 * pow(dist1, 1.3)) * sin(0.00022 * u_time);
+                float g = t + 0.6 + 0.2 * sin(8100.0 * pow(dist2, 1.3)) * sin(0.00023 * u_time);
+                float b = t + 0.6 + 0.2 * sin(8300.0 * pow(dist3, 1.3)) * sin(0.00024 * u_time);
+                float a = 0.7 + 0.1 * sin(0.0001 * u_time);
+                fragColor = vec4(r, g, b, a);
             }`;
 
       // create a vertex shader
@@ -241,10 +267,15 @@ export function createStarLayer(): StarLayer {
         args.defaultProjectionData.projectionTransition
       );
 
-      // ADDED
       gl.uniform1f(
         gl.getUniformLocation(program, "u_time"),
         performance.now() - this.startTime
+      );
+
+      gl.uniform2f(
+        gl.getUniformLocation(program, "u_center"),
+        this.center.x,
+        this.center.y
       );
 
       if (this.vertexBuffer) {
