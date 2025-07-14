@@ -30,7 +30,7 @@ interface Star {
 
 interface StarLayer extends CustomLayerInterface {
   shaderMap: Map<string, ProgramInfo>;
-  currentColorIndex: number;
+  startTime: number;
   vertexBuffer?: WebGLBuffer | null;
   indexBuffer?: WebGLBuffer | null;
   indexCount?: number;
@@ -46,9 +46,7 @@ export function createStarLayer(): StarLayer {
     id: "highlight",
     type: "custom",
     shaderMap: new Map<string, ProgramInfo>(),
-
-    // Current color index
-    currentColorIndex: 0,
+    startTime: performance.now(),
 
     // Helper method for creating a shader based on current map projection
     getShader(
@@ -67,7 +65,6 @@ export function createStarLayer(): StarLayer {
             ${shaderDescription.define}
 
             in vec2 a_pos;
-            // in float a_opacity; // TODO
             out float v_opacity;
 
             void main() {
@@ -79,10 +76,12 @@ export function createStarLayer(): StarLayer {
       const fragmentSource = `#version 300 es
             precision highp float;
 
+            uniform float u_time;
+
             in float v_opacity;
             out vec4 fragColor;
             void main() {
-                fragColor = vec4(0.5, 0.1, 0.7, 0.7);
+                fragColor = vec4(0.5, 0.1, 0.7, 0.7 + 0.2 * sin(0.001 * u_time));
             }`;
 
       // create a vertex shader
@@ -240,6 +239,12 @@ export function createStarLayer(): StarLayer {
       gl.uniform1f(
         gl.getUniformLocation(program, "u_projection_transition"),
         args.defaultProjectionData.projectionTransition
+      );
+
+      // ADDED
+      gl.uniform1f(
+        gl.getUniformLocation(program, "u_time"),
+        performance.now() - this.startTime
       );
 
       if (this.vertexBuffer) {

@@ -28,10 +28,17 @@ if (projectBtn) {
   });
 }
 
+// ADDED: force redrawing every frame
+map.repaint = true;
+
 // create a custom style layer to implement the WebGL content
 const highlightLayer = createStarLayer();
 
 // add the custom style layer to the map
 map.on("load", () => {
   map.addLayer(highlightLayer, "crimea-fill");
+});
+
+map.on("click", () => {
+  highlightLayer.startTime = performance.now();
 });
